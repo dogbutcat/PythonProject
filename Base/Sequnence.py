@@ -1,0 +1,9 @@
+numbers=[-98,1,66,3,7,22,16,86,54,76]
+sorted(numbers)
+print(numbers)
+enumerate(numbers)
+print(list(enumerate(numbers)))
+a=[1,2,3]
+b=[4,5,6]
+a1,b1=zip(*zip(a,b))
+print(type(a1),type(b))
