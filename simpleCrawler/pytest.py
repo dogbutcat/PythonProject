@@ -8,12 +8,13 @@ from mongocache import MongoCache
 
 from cinemacrawler import write_csv
 
+
 class TestSequenceFunctions(unittest.TestCase):
     def setUp(self):
         self.seq = range(10)
         self.url = 'http://example.webscraping.com/places/view/United-Kingdom-239'
         self.code = 200
-        self.html = '''<!--[if HTML5]><![endif]-->
+        self.html = '''<!--7[if HTML5]><![endif]-->
 <!DOCTYPE html>
 <!-- paulirish.com/2008/conditional-stylesheets-vs-css-hacks-answer-neither/ -->
 <!--[if lt IE 7]><html class="ie ie6 ie-lte9 ie-lte8 ie-lte7 no-js" lang="zh-cn"> <![endif]-->
@@ -119,47 +120,50 @@ class TestSequenceFunctions(unittest.TestCase):
 
     def test_scrapCallback(self):
         ScrapeCallback().__call__(self.url, self.html)
-        with open('countries.csv','r') as f:
+        with open('countries.csv', 'r') as f:
             print(f.read())
 
     def test_setitem(self):
         cache = DiskCache()
-        cache[self.url]={'html':self.html,'code':self.code}
+        cache[self.url] = {'html': self.html, 'code': self.code}
         self.assertTrue(os.path.exists(cache.url_to_path(self.url)))
 
     def test_getitem(self):
         cache = DiskCache()
         try:
             result = cache[self.url]
-            self.assertEqual(result['code'],self.code)
+            self.assertEqual(result['code'], self.code)
         except KeyError as e:
-            self.assertEqual(e.message,self.url+' has expired!')
-        # self.assertRaises(KeyError,cache.__getitem__,self.url)
+            self.assertEqual(e.message, self.url + ' has expired!')
+            # self.assertRaises(KeyError,cache.__getitem__,self.url)
 
     def test_timeExpire(self):
         cache = DiskCache(expires=timedelta(seconds=5))
         try:
             result = cache[self.url]
         except KeyError as e:
-            self.assertEqual(e.message,self.url+' has expired!')
-        # self.assertRaises(KeyError,cache.__getitem__,self.url)
+            self.assertEqual(e.message, self.url + ' has expired!')
+            # self.assertRaises(KeyError,cache.__getitem__,self.url)
 
+    @unittest.skip('No MongoDB')
     def test_mongoSet(self):
         cache = MongoCache()
-        cache[self.url] = {'code':self.code,'html':self.html}
+        cache[self.url] = {'code': self.code, 'html': self.html}
 
+    @unittest.skip('No MongoDB')
     def test_mongoGet(self):
         cache = MongoCache()
         result = cache[self.url]
-        self.assertEqual(self.html,result['html'])
+        self.assertEqual(self.html, result['html'])
 
     def test_write_film(self):
         if os.path.exists('films.csv'):
             os.remove('films.csv')
-        write_csv(1,2,3,4,5)
-        with open('films.csv','r') as f:
+        write_csv(1, 2, 3, 4, 5)
+        with open('films.csv', 'r') as f:
             f.readline()
-            self.assertIn('1,2,3,4,5',f.readline(),'Failed !')
+            self.assertIn('1,2,3,4,5', f.readline(), 'Failed !')
+
 
 if __name__ == '__main__':
     unittest.main()

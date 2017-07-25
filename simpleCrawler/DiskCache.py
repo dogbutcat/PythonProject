@@ -1,11 +1,12 @@
 import os
 import re
-import urlparse
 import zlib
 from datetime import datetime, timedelta
 try:
+    import urlparse
     import cPickle as pickle
 except ImportError:
+    from urllib import parse as urlparse
     import pickle
 
 

@@ -9,7 +9,8 @@ WIDTH = 375
 HEIGHT = 667
 PIXEL_RATIO = 3
 TARGET_URL = 'https://h5.m.taobao.com/app/movie/pages/index/index.html'
-UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 9_1 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko) Version/9.0 Mobile/13B143 Safari/601.1'
+UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 9_1 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko)' \
+     ' Version/9.0 Mobile/13B143 Safari/601.1'
 FIELDS = {
     'name': '.movie-name a',
     'date': '.xslide-item a',
@@ -20,13 +21,13 @@ FIELDS = {
 
 def write_csv(*arg):
     file_name = 'films.csv'
-    head_row = list(FIELDS.iterkeys())
-    with open(file_name, 'a') if os.path.exists(file_name) else open(
-            file_name, 'w') as csv_file:
+    head_row = list(FIELDS.iterkeys() if hasattr(FIELDS, 'iterkeys') else FIELDS.keys())
+    with open(file_name, 'a') if os.path.exists(file_name)\
+            else open(file_name, 'w') as csv_file:
         csv_writer = csv.writer(csv_file)
         if 'w' in csv_file.mode:
             csv_writer.writerow(head_row)
-        csv_writer.writerow(map(lambda a: a.encode('utf-8'), arg))
+        csv_writer.writerow(map(lambda a: a, arg))
 
 
 def act_tap(web_elem, touch_action, delay=1):
@@ -58,9 +59,8 @@ def get_films(driver, web_elems, touch_action):
             row = []
             for k in range(items_len):
                 write_csv(name, date, times[k].text, prices[k].text)
-                print name + ' ' + date + ' ' + times[k].text + ' ' + prices[
-                    k].text
-        print '\n'
+                print (name + ' ' + date + ' ' + times[k].text + ' ' + prices[k].text)
+        print ('\n')
 
 
 def main():
@@ -88,7 +88,7 @@ def main():
 
         get_films(driver, cinemaFilmsLis, touch_action)
     except Exception as e:
-        print e.message or e.msg
+        print (e.message or e.msg)
     finally:
         driver.close()
         driver.quit()
