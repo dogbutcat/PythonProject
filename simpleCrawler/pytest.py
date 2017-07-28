@@ -1,6 +1,11 @@
 import os
 import random
 import unittest
+
+try:
+    from unittest.mock import Mock
+except ImportError:
+    from unittest.mock import Mock
 from datetime import timedelta
 from ScrapeCallback import ScrapeCallback
 from DiskCache import DiskCache
@@ -11,7 +16,7 @@ from cinemacrawler import write_csv
 
 class TestSequenceFunctions(unittest.TestCase):
     def setUp(self):
-        self.seq = range(10)
+        self.seq = list(range(10))
         self.url = 'http://example.webscraping.com/places/view/United-Kingdom-239'
         self.code = 200
         self.html = '''<!--7[if HTML5]><![endif]-->
@@ -103,7 +108,7 @@ class TestSequenceFunctions(unittest.TestCase):
         # make sure the shuffled sequence does not lose any elements
         random.shuffle(self.seq)
         self.seq.sort()
-        self.assertEqual(self.seq, range(10))
+        self.assertEqual(self.seq, list(range(10)))
 
         # should raise an exception for an immutable sequence
         self.assertRaises(TypeError, random.shuffle, (1, 2, 3))
@@ -147,12 +152,16 @@ class TestSequenceFunctions(unittest.TestCase):
 
     @unittest.skip('No MongoDB')
     def test_mongoSet(self):
+        # mock_mongocache = Mock(MongoCache)
+        # mock_mongocache.call_args()
         cache = MongoCache()
         cache[self.url] = {'code': self.code, 'html': self.html}
 
-    @unittest.skip('No MongoDB')
+    # @unittest.skip('No MongoDB')
     def test_mongoGet(self):
-        cache = MongoCache()
+        mock_mongocache = Mock(MongoCache)
+        mock_mongocache.return_value = {self.url: {'html': self.html, 'code': self.code}}
+        cache = mock_mongocache(self.url)
         result = cache[self.url]
         self.assertEqual(self.html, result['html'])
 

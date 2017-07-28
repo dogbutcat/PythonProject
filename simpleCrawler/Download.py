@@ -1,8 +1,14 @@
 import time
-import urllib2
-import urlparse
+
+try:
+    from urlparse import urlparse
+    from urllib2 import Request, build_opener, ProxyHandler
+except ImportError:
+    from urllib.parse import urlparse
+    from urllib.request import Request, build_opener, ProxyHandler
+
 import random
-from datetime import datetime,timedelta
+from datetime import datetime
 
 
 class Download:
@@ -28,7 +34,7 @@ class Download:
             else:
                 if self.num_retries > 0 and 500 <= result['code'] < 600:
                     result = None
-        if result == None:
+        if result is not None:
             self.throttle.wait(url)
             proxy = random.choice(self.proxies) if self.proxies else None
             headers = self.headers
@@ -39,18 +45,18 @@ class Download:
 
     def download(self, url, headers, num_retries, data=None, proxy=None):
         """ Download Main Function """
-        print 'Downloading:', url
-        request = urllib2.Request(url, data, headers or {})
-        opener = urllib2.build_opener()
+        print('Downloading:', url)
+        request = Request(url, data, headers or {})
+        opener = build_opener()
         if proxy:
-            proxy_params = {urlparse.urlparse(url).scheme: proxy}
-            opener.add_handler(urllib2.ProxyHandler(proxy_params))
+            proxy_params = {urlparse(url).scheme: proxy}
+            opener.add_handler(ProxyHandler(proxy_params))
         try:
             response = opener.open(request)
             html = response.read()
             code = response.code
         except Exception as e:
-            print 'Download failed:', str(e)
+            print('Download failed:', str(e))
             html = ''
             if hasattr(e, 'code'):
                 code = e.code
@@ -67,7 +73,7 @@ class Throttle:
         self.domains = {}
 
     def wait(self, url):
-        domain = urlparse.urlparse(url).netloc
+        domain = urlparse(url).netloc
         last_accessed = self.domains.get(domain)
 
         if self.delay > 0 and last_accessed is not None:

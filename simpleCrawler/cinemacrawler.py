@@ -74,8 +74,7 @@ def main():
             executable_path="chromedriver", chrome_options=options)
         # driver = webdriver.Remote(desired_capabilities=options.to_capabilities())
         driver.implicitly_wait(15)
-        touch_action = webdriver.TouchActions(
-            driver)  # Action Chain need to perform()
+        touch_action = webdriver.TouchActions(driver)  # Action Chain need to perform()
         driver.get(TARGET_URL)
         buyLinks = driver.find_elements_by_class_name('right-btn-red')
         act_tap(buyLinks[0], touch_action)
