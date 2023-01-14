@@ -22,4 +22,4 @@ b = New_int(5)
 print(b)
 # b = New_int(6)
 print(type(b))
-print a + b
+print(a + b)

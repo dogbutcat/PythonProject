@@ -28,7 +28,7 @@ print(CapStr('This is Test String!'))
 
 class C:
     def __init__(self):
-        print 'This is __init__ Method!'
+        print('This is __init__ Method!')
 
     def __del__(self): # After All Reference has deleted then it works
         print('This is __del__ Method')
