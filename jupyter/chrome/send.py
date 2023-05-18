@@ -55,14 +55,13 @@ def chrome_cookies(url):
     domain = urllib.parse.urlparse(url).netloc
     domain_no_sub = '.'.join(domain.split('.')[-2:])
 
-    conn = sqlite3.connect(cookie_file)
     sql = 'select name, value, encrypted_value from cookies '\
             'where host_key like "%{}%"'.format(domain_no_sub)
     
     cookies = {}
     cookies_list = []
 
-    with conn:
+    with sqlite3.connect(cookie_file) as conn:
         for k,v,ev in conn.execute(sql):
             # print(k,v,ev)
             if v or (ev[:3] !=b'v10'):
@@ -200,7 +199,7 @@ def on_open(ws):
     t = int(time.time())
     s = r"r5*^5;}2#${XF[h+;'./.Q'1;,-]f'p["
     vk = hashlib.md5(f"{t}{s}{did}".encode()).hexdigest()
-    startMsg = f"type@=loginreq/roomid@={room_id}/dfl@=sn@AA=106@ASss@AA=1@Ssn@AA=107@ASss@AA=1@Ssn@AA=108@ASss@AA=1@Ssn@AA=105@ASss@AA=1@Ssn@AA=110@ASss@AA=1/username@=auto_U4FlKFzGj1/password@=/ltkid@=25618386/biz@=1/stk@={stk}/devid@={did}/ct@=0/pt@=2/cvr@=0/tvr@=7/apd@=/rt@={t}/vk@={vk}/ver@=20220825/aver@=218101901/dmbt@=chrome/dmbv@=111/er@=1/"
+    startMsg = f"type@=loginreq/roomid@={room_id}/dfl@=sn@AA=106@ASss@AA=1@Ssn@AA=107@ASss@AA=1@Ssn@AA=108@ASss@AA=1@Ssn@AA=105@ASss@AA=1@Ssn@AA=110@ASss@AA=1/username@=auto_U4FlKFzGj1/password@=/ltkid@=25618386/biz@=1/stk@={stk}/devid@={did}/ct@=0/pt@=2/cvr@=0/tvr@=7/apd@=/rt@={t}/vk@={vk}/ver@=20220825/aver@=218101901/dmbt@=chrome/dmbv@=112/er@=1/"
     ws.send(cdr.encode(startMsg))
 
     global connected
