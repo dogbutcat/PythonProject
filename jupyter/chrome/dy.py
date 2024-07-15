@@ -1,7 +1,7 @@
 # %pip install websocket-client
 
 import threading
-import websocket
+import websocket, ssl, socket
 import time
 
 from buffer_coder import BufferCoder
@@ -13,6 +13,7 @@ from format_msg import decode_msg
 
 cdr = BufferCoder()
 room_id = input("input room id:")
+timer = None
 
 # 设置心跳包发送时间间隔（单位：秒）
 heartbeat_interval = 30
@@ -30,8 +31,12 @@ def send_heartbeat(ws):
     timer.start()
     # scheduler.enter(heartbeat_interval, 1, send_heartbeat, (ws,))
 
+guest = 0
 def on_message(ws, message):
+    # guest = 0
     def on_cdr_decoded(txt):
+        # nonlocal guest
+        global guest
         obj = decode_msg(txt)
         # print(obj)
         if obj['type'] == 'chatmsg':
@@ -41,6 +46,11 @@ def on_message(ws, message):
             ws.send(heartbeat_data)
             timer.start()
             # scheduler.run()
+        elif obj['type'] == 'configscreen':
+            return
+        elif obj['type'] == 'oni':
+            print(f"『『贵宾数量更新：{guest} -> {obj['vn']} 』』")
+            guest=obj['vn']
         else:
             print(obj)
 
@@ -54,7 +64,8 @@ def on_close(ws, close_status_code, close_msg):
     print('end at: {}'.format(time.strftime('%Y-%B-%d %H:%M:%S')))
     print("Connection closed")
     global timer
-    timer.cancel()
+    if timer is not None:
+        timer.cancel()
     # scheduler.cancel(e_hb)
 
 def on_open(ws):
@@ -78,15 +89,30 @@ def on_open(ws):
     #             "content": msg
     #         }
     #         ws.send(json.dumps(data))
+
+def load_ciphers():
+    import subprocess
+    output = subprocess.run(["openssl", "ciphers"], capture_output=True).stdout
+    output_str = output.decode("utf-8")
+    ciphers = output_str.strip().split("\n")
+    return ciphers[0]
         
 if __name__ == "__main__":
     if room_id is not None:
         websocket.enableTrace(False)
+        ciphers = load_ciphers()
+        context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1
+        context.set_ciphers(ciphers)
+        sock = socket.create_connection(('danmuproxy.douyu.com', 8504))
+        ssock = context.wrap_socket(sock, server_hostname='danmuproxy.douyu.com')
         ws = websocket.WebSocketApp(
-            "wss://danmuproxy.douyu.com:8503/",
+            "wss://danmuproxy.douyu.com:8504/",
             on_message = on_message,
             on_error = on_error,
             on_close = on_close,
             on_open = on_open,
+            socket = ssock,
         )
+        # ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
         ws.run_forever()

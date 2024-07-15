@@ -1,0 +1,8 @@
+{
+  "venv": "pyright-3.11.6",
+  "venvPath": "/Users/oliver/.pyenv/versions",
+  "reportPossiblyUnboundVariable": "warning",
+  "reportAssignmentType": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportOperatorIssue": "warning"
+}

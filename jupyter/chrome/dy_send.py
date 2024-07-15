@@ -3,7 +3,7 @@ from chrome_cookie import chrome_cookies
 import hashlib, binascii
 import time
 import threading
-import websocket
+import websocket, ssl, socket
 import queue
 
 from buffer_coder import BufferCoder
@@ -14,6 +14,8 @@ url = "https://www.douyu.com"
 dict = chrome_cookies(url)
 did = dict['dy_did']
 stk = dict['acf_stk']
+
+print('stk:',stk)
 
 a = 999805542
 s = 0
@@ -39,7 +41,7 @@ room_id = input("input room id:")
 def input_thread(ws):
     while connected:
         user_input = input("Please Input: ")
-        if stop_event.isSet():
+        if stop_event.is_set():
             break
         if user_input != "":
             # q.put(user_input)
@@ -49,6 +51,7 @@ def input_thread(ws):
                 t = int(time.time() * 1000)
                 re = crypto([room_id, t])
                 ws.send(cdr.encode(f'pe@=0/content@={user_input}/col@=0/type@=chatmessage/dy@={did}/sender@=2478605/ifs@=0/nc@=0/dat@=0/rev@=0/tts@={int(t // 1000)}/admzq@=0/cst@={t}/dmt@=0/re@={re}/'))
+            time.sleep(1)
 
 # 设置心跳包发送时间间隔（单位：秒）
 heartbeat_interval = 30
@@ -110,6 +113,7 @@ def on_message(ws, message):
             # sender.join()
         elif obj['type'] == 'chatres':
             print('send success')
+            # print()
         elif obj['type'] == 'keeplive':
             global kd
             # print(obj, kd)
@@ -143,15 +147,29 @@ def on_open(ws):
     global timer
     timer = threading.Timer(heartbeat_interval, send_heartbeat, [ws])
 
+def load_ciphers():
+    import subprocess
+    output = subprocess.run(["openssl", "ciphers"], capture_output=True).stdout
+    output_str = output.decode('utf-8')
+    ciphers = output_str.strip().split("\n")
+    return ciphers[0]
+
 if __name__ == "__main__":
     if room_id != "":
+        cipher = load_ciphers()
+        context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1
+        context.set_ciphers(cipher)
+        sock = socket.create_connection(('wsproxy.douyu.com',6672))
+        ssock = context.wrap_socket(sock, server_hostname='wsproxy.douyu.com')
         websocket.enableTrace(False)
         ws = websocket.WebSocketApp(
-            "wss://wsproxy.douyu.com:6671/",
+            "wss://wsproxy.douyu.com:6672/",
             on_message = on_message,
             on_error = on_error,
             on_close = on_close,
             on_open = on_open,
+            socket=ssock
         )
         ws.run_forever()
         # check_input_queue(ws)
