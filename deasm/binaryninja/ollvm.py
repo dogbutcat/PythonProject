@@ -40,11 +40,14 @@ from binaryninja.mediumlevelil import (
 
 from binaryninja.architecture import Architecture
 
+from binaryninja.highlight import HighlightColor
+from binaryninja.enums import HighlightStandardColor
+
 
 class JumpEnums(enum.IntEnum):
-    TrueOut = 2
-    FalseOut = 3
-    DirectOut = 1
+    EqOut = 2 # equal out bound
+    NEqOut = 3 # not equal out bound
+    DirectOut = 1 # direct out bound
 
 # def get_all_phi_node(func: Function):
 #     phi_node: List['MediumLevelILVarPhi'] = []
@@ -66,7 +69,7 @@ def get_cff_nodes(func: Function) -> List['MediumLevelILBasicBlock']:
             cff_nodes.append(block)
     return cff_nodes
 
-def replace_phi_def_var(cff_node:MediumLevelILBasicBlock) -> List[Tuple['MediumLevelILBasicBlock','MediumLevelILSetVarSsa']]:
+def replace_phi_def_var(cff_node:MediumLevelILBasicBlock) -> List[Tuple['MediumLevelILSetVarSsa','MediumLevelILSetVarSsa']]:
     mlil_func = cff_node.il_function.ssa_form
     instructions = list(mlil_func.instructions)
     assign_ins:List['MediumLevelILSetVarSsa'] = []
@@ -74,19 +77,43 @@ def replace_phi_def_var(cff_node:MediumLevelILBasicBlock) -> List[Tuple['MediumL
         if isinstance(ins, MediumLevelILSetVarSsa) and isinstance(ins.src, MediumLevelILVarSsa):
             assign_ins.append(ins)
     warn_list = []
+    # print('assign ins: ',assign_ins)
     for ins in assign_ins:
         dest_ssa_var = ins.dest
         all_var_uses = mlil_func.get_ssa_var_uses(dest_ssa_var)
         all_var_uses = list(filter(lambda x: not isinstance(x, MediumLevelILVarPhi),all_var_uses))
         for use_ins in all_var_uses:
-            # print(use_ins)
+            # print('use_ins: ',use_ins)
             last_ins_block = mlil_func[use_ins.il_basic_block.end -1]
+            # print('last ins block: ',last_ins_block)
             if (isinstance(last_ins_block, MediumLevelILRet)):
-                warn_list.append((use_ins.il_basic_block, ins))
+                print(bv.get_disassembly(use_ins.address), bv.get_disassembly(ins.address))
+                warn_list.append((use_ins, ins))
                 break
             # print(use_ins.il_basic_block.source_block.disassembly_text)
     return warn_list
     # print(assign_ins)
+
+# return related variable in phi node
+def patch_return_block(var_list:List[Tuple['MediumLevelILSetVarSsa','MediumLevelILSetVarSsa']]):
+    for target, original in var_list:
+        mlil_func = original.il_basic_block.il_function
+        # check target in original use range
+        orig_var_uses = mlil_func.get_ssa_var_uses(original.dest)
+        if target in orig_var_uses:
+            # find all src var uses
+            orig_src_var_def = mlil_func.get_ssa_var_definition(original.src)
+            if type(orig_src_var_def) is MediumLevelILVarPhi:
+                for orig_src_var in orig_src_var_def.src:
+                    orig_src_var_phi_def = mlil_func.get_ssa_var_definition(orig_src_var)
+                    if orig_src_var_phi_def is not None:
+                        if type(orig_src_var_phi_def.src) is MediumLevelILConst:
+                            # this means arg2#8 = 0x10004
+                            # patch arg to target variable
+                            print(bv.get_disassembly(orig_src_var_phi_def.address))
+
+        print('patching %s with %s' % (hex(target.address), hex(original.address)))
+        # assemble_code(bv.get_disassembly(original.address), target.address)
 
 def get_dom_child_blocks(cff_node: MediumLevelILBasicBlock) -> List['MediumLevelILBasicBlock']:
     blocks = set()
@@ -98,6 +125,7 @@ def get_dom_child_blocks(cff_node: MediumLevelILBasicBlock) -> List['MediumLevel
             # print(parent_block,sorted(parent_block.dominators,reverse=True))
             if cff_node in parent_block.dominators and parent_block not in blocks:
                 blocks.add(parent_block)
+                # set_block_highlight(parent_block, HighlightStandardColor.YellowHighlightColor)
                 to_visit.append(parent_block)
 
     # last_mlil_ssa_ins = cff_node.il_function.ssa_form[cff_node.end - 1]
@@ -106,11 +134,12 @@ def get_dom_child_blocks(cff_node: MediumLevelILBasicBlock) -> List['MediumLevel
     #     cond_var = last_mlil_ssa_ins.condition.vars_read[0]
     #     if cond_var.name.startswith('cond'):
     #         is_cond = True
-    for in_edge in cff_node.incoming_edges:
-        parent_block = in_edge.source
-        # print(parent_block,sorted(parent_block.dominators,reverse=True))
-        if parent_block not in blocks:
-            blocks.add(parent_block)
+    # for in_edge in cff_node.incoming_edges:
+    #     parent_block = in_edge.source
+    #     # print(parent_block,sorted(parent_block.dominators,reverse=True))
+    #     if parent_block not in blocks:
+    #         blocks.add(parent_block)
+            # set_block_highlight(parent_block, HighlightStandardColor.RedHighlightColor)
             # ins_count = get_condition_block_instruction_count(cff_node)
             # if (is_cond and ins_count == 2):
             #     blocks.add(parent_block)
@@ -196,13 +225,17 @@ def get_conds_in_blocks( phi_ins: 'MediumLevelILVarPhi', blocks: List['MediumLev
                 # print(ret)
                 if ret:
                     conditions.add(last_mlil_ins)
+                    # set_instr_highlight(func, last_mlil_ins.address, HighlightStandardColor.RedHighlightColor)
     # print(list(conditions))
     return list(conditions)
 
 def get_original_cond_ins(func: MediumLevelILFunction, variable: Variable | SSAVariable) -> Tuple[Variable | SSAVariable, Variable | SSAVariable, int]:
     var_def = (func.get_ssa_var_definition(variable))
-    # print(var_def.src)
-    return var_def.src.left, var_def.src.right, var_def.src.operation
+    if var_def is None:
+        print('var_def is None')
+    else:
+        # print('var_def: ',var_def)
+        return var_def.src.left, var_def.src.right, var_def.src.operation
 
 def get_state_var(conditions: List['MediumLevelILIf']) -> SSAVariable | Variable:
     var_counts: Dict['SSAVariable | Variable', int] = defaultdict(lambda: 0)
@@ -220,7 +253,7 @@ def get_condition_block_instruction_count(condition_block: MediumLevelILBasicBlo
     # print(list(filter(lambda x: not isinstance(x, (MediumLevelILVarPhi, MediumLevelILMemPhi)), map(lambda x: x.il_instruction, condition_block.get_disassembly_text()))))
     return len(list(filter(lambda x: not isinstance(x, (MediumLevelILVarPhi, MediumLevelILMemPhi)), map(lambda x: x.il_instruction, condition_block.get_disassembly_text()))))
 
-def get_const_map(conditions: List['MediumLevelILIf'], state_var_defs:Dict['MediumLevelILBasicBlock','ConstantRegisterValue']) -> Dict['ConstantRegisterValue', Tuple['MediumLevelILBasicBlock', int, Literal[JumpEnums.TrueOut, JumpEnums.FalseOut, JumpEnums.DirectOut], 'MediumLevelILBasicBlock']]:
+def get_const_map(conditions: List['MediumLevelILIf'], state_var_defs:Dict['MediumLevelILBasicBlock','ConstantRegisterValue']) -> Dict['ConstantRegisterValue', Tuple['MediumLevelILBasicBlock', int, Literal[JumpEnums.EqOut, JumpEnums.NEqOut, JumpEnums.DirectOut], 'MediumLevelILBasicBlock']]:
     const_dict = {}
     for condition in conditions:
         if not isinstance(condition.condition, (MediumLevelILCmpE, MediumLevelILCmpNe, MediumLevelILVar, MediumLevelILVarSsa)):
@@ -252,10 +285,10 @@ def get_const_map(conditions: List['MediumLevelILIf'], state_var_defs:Dict['Medi
             continue
 
         if (operation == MediumLevelILOperation.MLIL_CMP_E):
-            judge = JumpEnums.TrueOut
+            judge = JumpEnums.EqOut
             target_block_idx = condition.true
         elif operation == MediumLevelILOperation.MLIL_CMP_NE:
-            judge = JumpEnums.FalseOut
+            judge = JumpEnums.NEqOut
             target_block_idx = condition.false
 
         # this means jump ins to is not single instruction, need to keep
@@ -282,33 +315,37 @@ def get_const_map(conditions: List['MediumLevelILIf'], state_var_defs:Dict['Medi
     # print('%s' % conditions)
     return const_dict
 
-def get_state_var_defs(state_var: SSAVariable | Variable, blocks:List['MediumLevelILBasicBlock']) -> Dict['MediumLevelILBasicBlock', 'ConstantRegisterValue']:
-    state_var_defs = {}
-    # print(type(list(blocks[0].il_function.instructions)[67]))
-    for block in blocks:
-        instructions = list(block.il_function.instructions)[block.start:block.end]
-        # print(instructions)
-        # print()
-        for ins in instructions:
-            # print((state_var.var))
-            # print(ins.dest if isinstance(ins, MediumLevelILSetVarSsa) else '')
-            if isinstance(ins, (MediumLevelILSetVar, MediumLevelILSetVarSsa)) and ins.dest == state_var:
-                # print(dir(ins))
-                # print(type(ins.src.value))
-                # print(state_var)
-                state_var_defs[block] = ins.src.value
-    # find where state var init
-    for ins in list(block.il_function.instructions):
-        if isinstance(ins, (MediumLevelILSetVar, MediumLevelILSetVarSsa)) and isinstance(ins.src, (MediumLevelILConst, )) and ins.dest == state_var:
-            # print(ins.operands)
-            # print(ins.il_basic_block)
-            state_var_defs[ins.il_basic_block] = ins.src.value
-    return state_var_defs
+# def get_state_var_defs(state_var: SSAVariable | Variable, blocks:List['MediumLevelILBasicBlock']) -> Dict['MediumLevelILBasicBlock', 'ConstantRegisterValue']:
+#     state_var_defs = {}
+#     # print(type(list(blocks[0].il_function.instructions)[67]))
+#     for block in blocks:
+#         instructions = list(block.il_function.instructions)[block.start:block.end]
+#         # print(instructions)
+#         # print()
+#         for ins in instructions:
+#             # print((state_var.var))
+#             # print(ins.dest if isinstance(ins, MediumLevelILSetVarSsa) else '')
+#             if isinstance(ins, (MediumLevelILSetVar, MediumLevelILSetVarSsa)) and ins.dest == state_var:
+#                 # print(dir(ins))
+#                 # print(type(ins.src.value))
+#                 # print(state_var)
+#                 state_var_defs[block] = ins.src.value
+#     # find where state var init
+#     for ins in list(block.il_function.instructions):
+#         if isinstance(ins, (MediumLevelILSetVar, MediumLevelILSetVarSsa)) and isinstance(ins.src, (MediumLevelILConst, )) and ins.dest == state_var:
+#             # print(ins.operands)
+#             # print(ins.il_basic_block)
+#             state_var_defs[ins.il_basic_block] = ins.src.value
+#             print(block.il_function)
+#     return state_var_defs
 
-def generate_cfg(const_dict: Dict['ConstantRegisterValue', Tuple['MediumLevelILBasicBlock', int, Literal[JumpEnums.TrueOut, JumpEnums.FalseOut, JumpEnums.DirectOut], 'MediumLevelILBasicBlock']], state_var_defs: Dict['MediumLevelILBasicBlock', 'ConstantRegisterValue']) -> List[Tuple['MediumLevelILBasicBlock','MediumLevelILBasicBlock']]:
+def generate_cfg(const_dict: Dict['ConstantRegisterValue', Tuple['MediumLevelILBasicBlock', int, Literal[JumpEnums.EqOut, JumpEnums.NEqOut, JumpEnums.DirectOut], 'MediumLevelILBasicBlock']], state_var_defs: Dict['MediumLevelILBasicBlock', 'ConstantRegisterValue']) -> List[Tuple['MediumLevelILBasicBlock','MediumLevelILBasicBlock']]:
     # map state_var_defs to const_dict
-    # print(const_dict)
-    # print(state_var_defs)
+    print()
+    print('const dict: ',const_dict)
+    print()
+    print('state var defs: ',state_var_defs)
+    print()
     cfg_links:List[Tuple['MediumLevelILBasicBlock','MediumLevelILBasicBlock']] = []
     for def_block, const in state_var_defs.items():
         if const in const_dict:
@@ -377,7 +414,7 @@ def generate_cfg(const_dict: Dict['ConstantRegisterValue', Tuple['MediumLevelILB
             print('todo')
         new_cfg_links.append(link)
 
-    print('\n'.join('%s: %s' % (hex(bs[0].start),bs[1:]) for bs in new_cfg_links))
+    # print('\n'.join('%s: %s' % (hex(bs[0].start),bs[1:]) for bs in new_cfg_links))
     # print(len(new_cfg_links))
     return new_cfg_links
 
@@ -390,7 +427,7 @@ def get_medium_il_branch_block(basic_block: BasicBlock) -> Tuple['MediumLevelILB
             # print(block.source_block)
             found_block = block
             break
-    print(found_block.start)
+    # print(found_block.start)
     if found_block is not None:
         out_edge1, out_edge2 = found_block.outgoing_edges
         if out_edge1.type == BranchType.TrueBranch:
@@ -431,9 +468,13 @@ def generate_patch(cfg_links: List[Tuple['BasicBlock','MediumLevelILBasicBlock']
     cmp_tuple = ('eq', 'ne', 'cc', 'cs', 'mi', 'gt')
     pack_out = 'L'
     pack_in = 'l'
+    addr_offset = 0
     if func.arch.name in ('aarch64'):
         pack_out = 'Q'
         pack_in = 'q'
+    
+    if func.arch.name in ('thumb', 'thumb2'):
+        addr_offset = 4
 
     for link in cfg_links:
         if len(link) == 2:
@@ -456,16 +497,18 @@ def generate_patch(cfg_links: List[Tuple['BasicBlock','MediumLevelILBasicBlock']
             out_address = out_asm_basic_block.start
             print('Patch at 0x%x, to 0x%x, %d bytes' % (last_ins_address, out_address, ins_len))
             original_bytecode = bv.read(last_ins_address, ins_len)
-            jmp_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, out_address - last_ins_address))[0]
-            if jmp_unsigned_offset == 0x4:
+            jmp_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, out_address - last_ins_address - addr_offset))[0]
+            if (func.arch.name not in ('thumb', 'thumb2') and jmp_unsigned_offset == 0x4) or (func.arch.name in ('thumb', 'thumb2') and jmp_unsigned_offset == 0x0):
             # if False:
-                new_bytecode = assemble_code('nop', last_ins_address)
+                assemble_ins = 'nop'
+                new_bytecode = assemble_code(assemble_ins, last_ins_address)
                 print('Replacing %s with %s in nop' % (original_bytecode.hex(), new_bytecode.hex()))
             else:
-                new_bytecode = assemble_code('b %s' % (jmp_unsigned_offset), last_ins_address)
-                print('Replacing %s with %s offset %s' % (original_bytecode.hex(), new_bytecode.hex(), out_address - last_ins_address))
+                assemble_ins = 'b %s' % (hex(jmp_unsigned_offset))
+                new_bytecode = assemble_code('b %s' % hex(jmp_unsigned_offset), last_ins_address)
+                print('Replacing %s with %s offset %s' % (original_bytecode.hex(), new_bytecode.hex(), out_address - last_ins_address - addr_offset))
             patch = (last_ins_address, new_bytecode)
-            patch_obj = {"b %s":(last_ins_address, out_address)}
+            patch_obj = {assemble_ins:(hex(last_ins_address), hex(out_address))}
 
             patch_data.append(patch)
             patch_objs.append(patch_obj)
@@ -480,18 +523,21 @@ def generate_patch(cfg_links: List[Tuple['BasicBlock','MediumLevelILBasicBlock']
             true_block_address = true_block_source.start
             false_block_address = false_block_source.start
 
-            if true_block_source.get_disassembly_text()[0].tokens[0].text.startswith('goto'):
+            print(hex(base_block.start),hex(true_block_address), hex(false_block_address))
+
+            if true_block.get_disassembly_text()[0].tokens[1].text.startswith('goto'):
                 true_block_source = true_block_source.outgoing_edges[0].target
                 print('true block is only goto %s , advance to %s' % (true_block_source, true_block_source.outgoing_edges[0].target))
-            if false_block_source.get_disassembly_text()[0].tokens[0].text.startswith('goto'):
+            if false_block.get_disassembly_text()[0].tokens[1].text.startswith('goto'):
                 false_block_source = false_block_source.outgoing_edges[0].target
                 print('true block is only goto %s , advance to %s' % (false_block_source, false_block_source.outgoing_edges[0].target))
 
             last_ins = asm_basic_block.disassembly_text[-1]
-            if last_ins.tokens[0].text.startswith('b') and func.arch.name == 'aarch64':
+            if last_ins.tokens[1].text.startswith('b') and func.arch.name == 'aarch64':
                 csel_ins = asm_basic_block.disassembly_text[-2]
-                if csel_ins.tokens[0].text.startswith('csel'):
+                if csel_ins.tokens[1].text.startswith('csel'):
                     filtered_token = list(filter(lambda x: x.text in cmp_tuple, csel_ins.tokens))[0]
+                    print('list: ',list(filter(lambda x: x.text in cmp_tuple, csel_ins.tokens)))
                     # do address offset
                     csel_ins_address = csel_ins.address
                     last_ins_address = last_ins.address
@@ -506,8 +552,8 @@ def generate_patch(cfg_links: List[Tuple['BasicBlock','MediumLevelILBasicBlock']
                     # original_jump_bytecode = bv.read(last_ins_address, ins_len)
                     original_bytecode = bv.read(csel_ins_address, csel_ins_len+ins_len)
 
-                    csel_jump_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, true_block_address - csel_ins_address))[0]
-                    false_jump_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, false_block_address - last_ins_address))[0]
+                    csel_jump_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, true_block_address - csel_ins_address - addr_offset))[0]
+                    false_jump_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, false_block_address - last_ins_address - addr_offset))[0]
                     # new_csel_bytecode = Architecture[bv.arch.name].assemble('b.%s %s' % (filtered_token, hex(csel_jump_unsigned_offset)), csel_ins_address)
                     # new_direct_jump_bytecode = Architecture[bv.arch.name].assemble('b %s' % (hex(direct_jump_unsigned_offset)),last_ins_address)
                     patch_bytecode = assemble_code('b.%s %s\nb %s'%(filtered_token, hex(csel_jump_unsigned_offset), hex(false_jump_unsigned_offset)),csel_ins_address)
@@ -516,7 +562,7 @@ def generate_patch(cfg_links: List[Tuple['BasicBlock','MediumLevelILBasicBlock']
                     # print('Replacing direct jump %s with %s offset %s' % (original_jump_bytecode.hex(), new_direct_jump_bytecode.hex(), hex(direct_jump_unsigned_offset)))
                     # patch = [(csel_ins_address, new_csel_bytecode), (last_ins_address, new_direct_jump_bytecode)]
                     patch = (csel_ins_address, patch_bytecode)
-                    patch_obj = {f"b.{filtered_token} %s\nb %s":(csel_ins_address, true_block_address, false_block_address)}
+                    patch_obj = {f"b.{filtered_token} {hex(csel_jump_unsigned_offset)}\nb {hex(false_jump_unsigned_offset)}":(hex(csel_ins_address), hex(true_block_address), hex(false_block_address))}
                     patch_data.append(patch)
                     patch_objs.append(patch_obj)
             elif func.arch.name == 'thumb2':
@@ -552,12 +598,12 @@ def generate_patch(cfg_links: List[Tuple['BasicBlock','MediumLevelILBasicBlock']
                         it_block_len = it_else_ins.address - it_ins_addr
 
                         # it_ins_addr includes it ins
-                        true_jump_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, true_block_address - it_ins_addr))[0]
+                        true_jump_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, true_block_address - it_ins_addr - addr_offset))[0]
                         true_it_size = len(assemble_code('b%s %s'%(jump_token, hex(true_jump_unsigned_offset)),it_ins_addr))
                         print(hex(true_block_address))
                         print(hex(it_ins_addr))
                         false_jump_start_addr = it_ins_addr + true_it_size
-                        false_jump_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, false_block_address - false_jump_start_addr))[0]
+                        false_jump_unsigned_offset = struct.unpack(pack_out, struct.pack(pack_in, false_block_address - false_jump_start_addr - addr_offset))[0]
                         patch_bytecode = assemble_code('b%s %s\nb %s'%(jump_token, hex(true_jump_unsigned_offset), hex(false_jump_unsigned_offset)),it_ins_addr)
                         if len(patch_bytecode) > it_block_len:
                             print(f'Patch Block Over {len(patch_bytecode) - it_block_len} Bytecode Length Warning!!!')
@@ -565,7 +611,7 @@ def generate_patch(cfg_links: List[Tuple['BasicBlock','MediumLevelILBasicBlock']
                             original_bytecode = bv.read(it_ins_addr, it_block_len)
                             print('Replacing %s with %s at %s' % (original_bytecode.hex(), patch_bytecode.hex(), hex(it_ins_addr)))
                             patch = (it_ins_addr, patch_bytecode)
-                            patch_obj = { f'b{jump_token} %s\nb %s': (it_ins_addr, true_block_address, false_block_address)}
+                            patch_obj = { f'b{jump_token} {hex(true_jump_unsigned_offset)}\nb {hex(false_jump_unsigned_offset)}': (it_ins_addr, true_block_address, false_block_address)}
                             patch_data.append(patch)
                             patch_objs.append(patch_obj)
                     else:
@@ -668,10 +714,31 @@ def get_ssa_node_state_var(phi_ins: MediumLevelILVarPhi, blocks: List['MediumLev
                 # print('%s: %s' % (ins, ret))
                 if is_state_var(phi_ins, ins.dest):
                     state_var_defs[block] = ins.src.value
+                    # set_instr_highlight(func, ins.address, HighlightStandardColor.WhiteHighlightColor)
             # elif isinstance(ins, MediumLevelILSetVarSsaField):
-            #     ret = is_state_var(phi_ins, ins.dest)
+            #     ret = is_state_var(phi_ins, ins.  dest)
             #     print('%s: %s' % (ins, ret))
     return state_var_defs
+
+def get_cff_node_state_var(phi_ins: MediumLevelILVarPhi, state_defs: Dict['MediumLevelILBasicBlock','ConstantRegisterValue'], depth: int = 0) -> Dict['MediumLevelILBasicBlock','ConstantRegisterValue']:
+    if depth > 5:
+        print('depth is over 5, stop working')
+        return state_defs
+    mlil_func = phi_ins.il_basic_block.il_function.ssa_form
+    for var in phi_ins.src:
+        var_def = mlil_func.get_ssa_var_definition(var)
+        if var_def is not None:
+            if type(var_def.src) == MediumLevelILConst:
+                parent_block = var_def.il_basic_block
+                if parent_block not in state_defs:
+                    print('found initial state var %s in block %s' % (var_def.src.value, parent_block))
+                    state_defs[phi_ins.il_basic_block] = var_def.src.value
+            elif type(var_def) == MediumLevelILVarPhi:
+                print('phi node in phi node')
+                state_defs = get_cff_node_state_var(var_def, state_defs, depth + 1)
+            else: 
+                print('Unknown src %s in type %s' % (var_def.src, type(var_def.src)))
+    return state_defs
 
 def cleanup_bogus_code(func: Function):
     mlil_ssa = func.mlil.ssa_form
@@ -700,48 +767,17 @@ def cleanup_bogus_code(func: Function):
                     # means false
                     link = (source_block, false_block)
                 cfg_links.append(link)
-    patches = generate_patch(cfg_links)
-    # print(cfg_links)
+    patches, patch_objs = generate_patch(cfg_links, func)
+    print(cfg_links)
     save_patch(patches)
-    
+
+def set_block_highlight(block: BasicBlock, color: HighlightStandardColor=HighlightStandardColor.YellowHighlightColor):
+    block.set_auto_highlight(HighlightColor(color)) # use auto highlight to set wouldn't be saved
+
+def set_instr_highlight(func:Function, instr: int, color: HighlightStandardColor=HighlightStandardColor.YellowHighlightColor):
+    func.set_auto_instr_highlight(instr, HighlightColor(color))
 
 
-
-# def get_cond_map(func: Function):
-#     cond_map = {}
-#     for block in func.mlil:
-#         # print(block)
-#         ret = get_if_cond(block, const_map_handler)
-#         if ret is not None:
-#             print(ret)
-#         for ins in list(block.il_function.instructions)[block.start: block.end]:
-#                 if isinstance(ins.condition, (MediumLevelILCmpE, MediumLevelILCmpNe)) and isinstance(ins.condition.right, MediumLevelILConst):
-#                     ret_map = (get_const_map([ins]))
-#                     print(ret_map)
-#     return cond_map
-
-# def get_if_cond(block: MediumLevelILBasicBlock, callback: Callable[[MediumLevelILSetVar, MediumLevelILIf], Any] ):
-#     cond_var = None
-#     for ins in list(block.il_function.instructions)[block.start: block.end]:
-#         if isinstance(ins, MediumLevelILSetVar):
-#             if (ins.dest.name.startswith('cond')):
-#                 # print(type(ins.src))
-#                 cond_var = ins
-#         if isinstance(ins, MediumLevelILIf):
-#             if cond_var is not None and cond_var.dest == ins.condition.var:
-#                 return callback(cond_var, ins)
-
-# def const_map_handler(cond_var: MediumLevelILSetVar, if_cond: MediumLevelILIf):
-#     if (cond_var.src.operation == MediumLevelILOperation.MLIL_CMP_E):
-#         target_block = if_cond.true
-#     elif cond_var.src.operation == MediumLevelILOperation.MLIL_CMP_NE:
-#         target_block = if_cond.false
-#     return target_block, cond_var, if_cond
-
-# def state_var_handler(cond_var: MediumLevelILSetVar, if_cond: MediumLevelILIf):
-#     if isinstance(cond_var.src.left, MediumLevelILVar):
-#         return cond_var.src.left.var
-import array
 import pickle
 
 def write_array(array):
@@ -752,7 +788,8 @@ if __name__ == "__main__":
 
     try:
         timeout = 30
-        target = "libnative-lib.so"
+        # target = "libnative-lib.so"
+        target = "libnative-lib.so.bndb"
 
         import binaryninja
         bv = binaryninja.load(target)
@@ -764,18 +801,18 @@ if __name__ == "__main__":
         entry_name = 'JNI_OnLoad'
         # entry_name = 'sub_12ae4'
         # entry_name = 'sub_17f9c'
-    func_addr = 0x00010ba8
-    # func = bv.get_functions_by_name(entry_name)[0]
-    func = bv.get_function_at(func_addr)
+    func_addr = 0x000105c0
+    func = bv.get_functions_by_name(entry_name)[0]
+    # func = bv.get_function_at(func_addr)
 
 
 
     ssa_cff_nodes = get_ssa_cff_nodes(func)
-    ssa_cff_nodes.reverse()
+    # ssa_cff_nodes.reverse()
     # print(len(ssa_cff_nodes))
     data_to_patch = []
     # for ssa_cff_node in ssa_cff_nodes[25:26]:
-    for ssa_cff_node in ssa_cff_nodes[:5]:
+    for ssa_cff_node in ssa_cff_nodes[:1]:
         # state_var = get_state_var(conditions)
         print(ssa_cff_node)
         phi_ins = get_phi_ins(ssa_cff_node)
@@ -783,24 +820,27 @@ if __name__ == "__main__":
             print('Not Found Phi Node, skipping to next')
             print()
             continue
-        print(phi_ins)
+        print('phi ins: ',phi_ins)
         warn_list = replace_phi_def_var(ssa_cff_node)
         if len(warn_list) > 0:
-            print(warn_list)
-            exit
+            print('warn list', warn_list)
+        #     exit
+        patch_return_block(warn_list)
         child_blocks = get_dom_child_blocks(ssa_cff_node)
         conditions = get_conds_in_blocks(phi_ins, child_blocks)
         state_var_defs = get_ssa_node_state_var(phi_ins, child_blocks)
+        # get cff node state var
+        state_var_defs = get_cff_node_state_var(phi_ins, state_var_defs)
         const_dict = get_const_map(conditions, state_var_defs)
         cfg_links = generate_cfg(const_dict, state_var_defs)
         # cfg_links = list(filter(lambda x: len(x)==2, cfg_links))
         patches, patch_objs = generate_patch(cfg_links, func)
-    #     save_patch(patches)
+        # save_patch(patches)
     #     # print('\n'.join('%s: %s' % (hex(a), p.hex()) for a, p in (patches)))
         # for link in cfg_links:
         #     if len(link) == 2:
-        #         # print('%s: %s' %(hex(link[0].start), link[1]))
-        #         print()
+        #         print('%s: %s' %(hex(link[0].start), link[1]))
+        #         # print()
         #     else:
         #         print('%s: %s, %s' %(hex(link[0].start), link[1], link[2]))
         # print(len(patches))
@@ -818,8 +858,8 @@ if __name__ == "__main__":
         data_to_patch.append(patch_objs)
         print()
 
-    write_array(data_to_patch)
-        
+    # write_array(data_to_patch)
+    # print(data_to_patch)
 
     # # for func in bv.functions:
     # #     if func.name != entry_name: continue
